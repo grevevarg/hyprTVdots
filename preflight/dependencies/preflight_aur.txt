@@ -1,0 +1,11 @@
+atlauncher-bin
+brave-bin
+chromium-widevine
+heroic-games-launcher-bin
+protonhax
+protonplus
+proton-ge-custom-bin
+xpadneo-dkms
+yay
+bzmenu
+iwmenu

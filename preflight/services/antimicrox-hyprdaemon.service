@@ -1,0 +1,8 @@
+[Unit]
+Description=Antimicrox Hyprland Daemon
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/antimicrox-hyprdaemon
+Restart=on-failure
+RestartSec=5
