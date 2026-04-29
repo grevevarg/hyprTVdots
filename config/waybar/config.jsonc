@@ -1,0 +1,33 @@
+[
+  {
+    "layer": "top",
+    "name": "tvbar",
+    "position": "right",
+    "width": 256,
+    "margin-left": 0,
+    "margin-right": 0,
+    "margin-top": 0,
+    "margin-bottom": 0,
+    "start_hidden": true,
+    "exclusive": false,
+    "passthrough": false,
+    "include": [
+    "./modules/bluetooth.json",
+    "./modules/network.json",
+    "./modules/power.json",
+    "./modules/clock.json"
+    ],
+    "modules-left": [
+    "bluetooth",
+    "network"
+    ],
+    "modules-center": [
+    "custom/power"
+    ],
+    "modules-right": [
+      "clock",
+      "clock#date"
+    ],
+    "reload_style_on_change": true,
+  }
+]

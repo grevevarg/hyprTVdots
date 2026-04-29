@@ -1,0 +1,54 @@
+/* fallback colors in hex, does not support alpha in the last bit :( */
+
+@define-color background #3f3f3f;
+@define-color border #000000;
+@define-color text_base #dedede;
+@define-color warn #D34DBE;
+@define-color critical #D3ADBE;
+@define-color hover #FFFFFF;
+@define-color active #D34DB3;
+@define-color charging #ABABAB;
+
+* {
+    font-family: "Jost*";
+    font-size: 128px;
+    min-height: 0;
+}
+
+window#waybar {
+    background: @background;
+    color: @text_base;
+    border-radius: 0px;
+    box-shadow: 
+    rgba(0, 0, 0, 1)
+    0px 0px /*positioning*/
+    12px /*blur*/
+    256px /*spread*/;
+}
+
+/* default module appearance – can be overridden later */
+label.module {
+    padding: 0px 8px;
+    margin: 0px 4px;
+    border-radius: 0px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+/* Light up modules on hover*/
+label.module:hover {
+    color: @hover;
+}
+
+/* Change colour on waybar button press */
+label.module:active {
+  color: @active;
+}
+
+/* Non Specific keyframes*/
+@keyframes blink {
+    to {
+        background-color: #8fd4ff;
+        color: black;
+    }
+}

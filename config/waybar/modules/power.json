@@ -1,0 +1,6 @@
+{
+  "custom/power": {
+    "format": "⏻",
+    "on-click": "hyprlock -c ~/.config/hypr/powermenu.conf"
+  }
+}

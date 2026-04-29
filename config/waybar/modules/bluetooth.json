@@ -1,0 +1,8 @@
+{
+"bluetooth": {
+      "format": "",
+      "format-disabled": "󰂲",
+      "format-connected": "󰂱 {num_connections}",
+      "on-click": "bzmenu -l custom --launcher-command 'rofi -dmenu -theme ~/.config/rofi/global/bt.rasi' > /dev/null 2>&1",
+    }
+}

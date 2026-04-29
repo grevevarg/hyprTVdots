@@ -1,0 +1,8 @@
+{
+  "clock": {
+    "format": "<span line_height=\"96256\">{:%H\n%M}</span>"
+  },
+  "clock#date": {
+    "format": "{:%a}"
+  }
+}
