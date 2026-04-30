@@ -1,13 +1,48 @@
 #!/usr/bin/python3
 
+import signal
 import socket
 import os
 import subprocess
+import logging
+from logging.handlers import RotatingFileHandler
 
 HIS = os.getenv("HYPRLAND_INSTANCE_SIGNATURE")
 RUNTIME_DIR = os.getenv("XDG_RUNTIME_DIR")
 
-global listen
+# Setup logging
+log_dir = os.path.expanduser("~/.local/share/antimicrox-hyprdaemon")
+os.makedirs(log_dir, exist_ok=True)
+
+logger = logging.getLogger("antimicrox-hyprdaemon")
+logger.setLevel(logging.DEBUG)
+
+# File handler with rotation (max 5MB per file, keep 3 backups)
+file_handler = RotatingFileHandler(
+    os.path.join(log_dir, "daemon.log"),
+    maxBytes=5*1024*1024,
+    backupCount=3
+)
+file_handler.setLevel(logging.DEBUG)
+
+# Console handler (INFO level only)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+# Formatter
+formatter = logging.Formatter(
+    '[%(asctime)s] %(levelname)-8s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+
+# State management
+paused = False
+saved_set_id = None
 listen = True
 
 # fake enum for default sets in provided controller config
@@ -22,16 +57,22 @@ ipc_socket = os.path.abspath(f"{RUNTIME_DIR}/hypr/{HIS}/.socket2.sock")
 
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 sock.connect(ipc_socket)
+logger.info(f"Connected to Hyprland IPC socket: {ipc_socket}")
 
-def set_controller_gbus(device_id:int, set_id:int) -> null:
+def set_controller_gbus(device_id:int, set_id:int) -> None:
     '''
     sets the active profile of the controller at index device_id to loaded profiles set_id
     '''
-    subprocess.run([
-        "gdbus", "call", "--session", 
-        "--dest", "io.github.antimicrox", 
-        "--object-path", f"/InputDevice/{device_id}", 
-        "--method", "io.github.antimicrox.InputDevice.setActiveSetNumber", f"{set_id}"])
+    try:
+        subprocess.run([
+            "gdbus", "call", "--session", 
+            "--dest", "io.github.antimicrox", 
+            "--object-path", f"/InputDevice/{device_id}", 
+            "--method", "io.github.antimicrox.InputDevice.setActiveSetNumber", f"{set_id}"],
+            check=True, capture_output=True)
+        logger.debug(f"Set controller {device_id} to set {set_id}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to set controller {device_id} to set {set_id}: {e}")
     return
 
 def get_controller_set_gbus(device_id:int) -> int:
@@ -39,80 +80,125 @@ def get_controller_set_gbus(device_id:int) -> int:
     gets the active profiles currently running set of the controller at index device_id
     returns -1 on failure
     '''
-    stdresult = subprocess.run([
-        "gdbus", "call", "--session", 
-        "--dest", "io.github.antimicrox", 
-        "--object-path", f"/InputDevice/{device_id}", 
-        "--method", "io.github.antimicrox.InputDevice.getActiveSetNumber"],
-        capture_output=True, text=True)
     try:
-        # output is formatted like (0,), brittle matching the second element :)
-        return int(stdresult.stdout[1])
-    except:
+        result = subprocess.run([
+            "gdbus", "call", "--session", 
+            "--dest", "io.github.antimicrox", 
+            "--object-path", f"/InputDevice/{device_id}", 
+            "--method", "io.github.antimicrox.InputDevice.getActiveSetNumber"],
+            capture_output=True, text=True, check=True)
+        return int(result.stdout[1])
+    except (subprocess.CalledProcessError, ValueError, IndexError) as e:
+        logger.warning(f"Failed to get controller {device_id} set: {e}")
         return -1
 
-def main():
-    while listen:
-        data = sock.recv(4096)
-        # filter to only activewindow
-        # the IPC seems to fail to report events randomly when switching windows
-        # hopefully its better under monocle, 
-        # but it felt best to include some early fallback to generic in the cases where it fails
-        if "activewindow" in data.decode():
-            events = data.decode().split("\n")
-            print(events)
-            try:
-                window_class = events[0].split(">>")[1].split(",")[0].strip()
-            except IndexError:
-                window_class = "force_generic"
-            try:
-                window_title = events[0].split(">>")[1].split(",")[1].strip()       
-            except IndexError:
-                window_title = ""
-            try:
-                window_address = events[1].split(">>")[1].split(",")[0].strip()
-            except IndexError:
-                window_address = ""
-            event_dict = {
-                'activewindow': 
-                    {
-                    'window_class': window_class, 
-                    'window_title': window_title, 
-                    'window_address': window_address
-                    }
-                }
+def handle_pause(signum, frame):
+    '''
+    Signal handler for SIGUSR1 - pauses the daemon and saves current set
+    '''
+    global paused, saved_set_id
+    if not paused:
+        paused = True
+        saved_set_id = get_controller_set_gbus(0)
+        logger.info(f"PAUSED - Saved controller set: {saved_set_id}")
+    else:
+        paused = False
+        if saved_set_id is not None:
+            set_controller_gbus(0, saved_set_id)
+            logger.info(f"RESUMED - Restored controller set: {saved_set_id}")
+        saved_set_id = None
 
-            match event_dict['activewindow']['window_class']:
-                # match most window classes as substrings
-                # in the cases where applications are verified to have full raw controller input support
-                # the null profile is loaded because having a second profile can interfere with navigation
-                case x if "force_generic" in x:
-                    set_controller_gbus(0, ControllerSet.GENERIC)
-                case x if "ghostty" in x:
-                    set_controller_gbus(0, ControllerSet.GENERIC)
-                case x if "helium" in x:
-                    set_controller_gbus(0, ControllerSet.GENERIC)
-                case x if "jellyfin" in x:
-                    set_controller_gbus(0, ControllerSet.MEDIA)
-                case x if "youtube" in x:
-                    set_controller_gbus(0, ControllerSet.MEDIA)
-                case x if "chrome-" in x and "__" in x:
-                    set_controller_gbus(0, ControllerSet.GENERIC)
-                case x if "RetroArch" in x:
-                    set_controller_gbus(0, ControllerSet.NULL_SET)
-                case x if "steam" in x:
-                    set_controller_gbus(0, ControllerSet.NULL_SET)
-                case x if "heroic" in x:
-                    set_controller_gbus(0, ControllerSet.NULL_SET)
-                case x if "rpcs3" in x:
-                    if "RPCS3" in event_dict['activewindow']['window_title']:
+def handle_exit(signum, frame):
+    '''
+    Signal handler for SIGTERM/SIGINT - graceful shutdown
+    '''
+    global listen
+    listen = False
+    logger.info("Daemon shutting down...")
+
+def main():
+    global paused, listen
+    
+    logger.info("=== antimicrox-hyprdaemon started ===")
+    
+    # Register signal handlers
+    signal.signal(signal.SIGUSR1, handle_pause)  # Toggle pause with kill -USR1 <pid>
+    signal.signal(signal.SIGTERM, handle_exit)   # Graceful shutdown with kill <pid>
+    signal.signal(signal.SIGINT, handle_exit)    # Also handle Ctrl+C
+    
+    while listen:
+        try:
+            data = sock.recv(4096)
+            
+            # Skip processing if paused
+            if paused:
+                continue
+                
+            # filter to only activewindow
+            if "activewindow" in data.decode():
+                events = data.decode().split("\n")
+                logger.debug(f"Raw events: {events}")
+                
+                try:
+                    window_class = events[0].split(">>")[1].split(",")[0].strip()
+                except IndexError:
+                    window_class = "force_generic"
+                try:
+                    window_title = events[0].split(">>")[1].split(",")[1].strip()       
+                except IndexError:
+                    window_title = ""
+                try:
+                    window_address = events[1].split(">>")[1].split(",")[0].strip()
+                except IndexError:
+                    window_address = ""
+                
+                logger.info(f"Window changed - Class: {window_class}, Title: {window_title}")
+                
+                event_dict = {
+                    'activewindow': 
+                        {
+                        'window_class': window_class, 
+                        'window_title': window_title, 
+                        'window_address': window_address
+                        }
+                    }
+
+                match event_dict['activewindow']['window_class']:
+                    case x if "force_generic" in x:
                         set_controller_gbus(0, ControllerSet.GENERIC)
-                    else:
-                        set_controller_gbus(0, ControllerSet.NULL_SET)
-                case x if "lutris" in x:
-                    if "Lutris" in event_dict['activewindow']['window_title']:
+                    case x if "ghostty" in x:
                         set_controller_gbus(0, ControllerSet.GENERIC)
-                    else:
+                    case x if "helium" in x:
+                        set_controller_gbus(0, ControllerSet.GENERIC)
+                    case x if "jellyfin" in x:
+                        set_controller_gbus(0, ControllerSet.MEDIA)
+                    case x if "youtube" in x:
+                        set_controller_gbus(0, ControllerSet.MEDIA)
+                    case x if "chrome-" in x and "__" in x:
+                        set_controller_gbus(0, ControllerSet.GENERIC)
+                    case x if "RetroArch" in x:
                         set_controller_gbus(0, ControllerSet.NULL_SET)
-                case _:
-                    set_controller_gbus(0, ControllerSet.NULL_SET)
+                    case x if "steam" in x:
+                        set_controller_gbus(0, ControllerSet.NULL_SET)
+                    case x if "heroic" in x:
+                        set_controller_gbus(0, ControllerSet.NULL_SET)
+                    case x if "rpcs3" in x:
+                        if "RPCS3" in event_dict['activewindow']['window_title']:
+                            set_controller_gbus(0, ControllerSet.GENERIC)
+                        else:
+                            set_controller_gbus(0, ControllerSet.NULL_SET)
+                    case x if "lutris" in x:
+                        if "Lutris" in event_dict['activewindow']['window_title']:
+                            set_controller_gbus(0, ControllerSet.GENERIC)
+                        else:
+                            set_controller_gbus(0, ControllerSet.NULL_SET)
+                    case _:
+                        set_controller_gbus(0, ControllerSet.NULL_SET)
+        except Exception as e:
+            logger.error(f"Unexpected error in main loop: {e}", exc_info=True)
+    
+    logger.info("=== antimicrox-hyprdaemon stopped ===")
+
+if __name__ == "__main__":
+    main()
+    sock.close()
