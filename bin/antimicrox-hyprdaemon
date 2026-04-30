@@ -51,48 +51,68 @@ def get_controller_set_gbus(device_id:int) -> int:
     except:
         return -1
 
-while listen:
-    data = sock.recv(4096)
-    # filter to only activewindow
-    if "activewindow" in data.decode():
-        events = data.decode().split("\n")
-        print(events)        
-        event_dict = {
-            'activewindow': 
-                {
-                'window_class': events[0].split(">>")[1].split(",")[0].strip(), 'window_title': events[0].split(">>")[1].split(",")[1].strip(), 'window_address': events[1].split(">>")[1].split(",")[0].strip() if len(events) > 1 else None
+def main():
+    while listen:
+        data = sock.recv(4096)
+        # filter to only activewindow
+        # the IPC seems to fail to report events randomly when switching windows
+        # hopefully its better under monocle, 
+        # but it felt best to include some early fallback to generic in the cases where it fails
+        if "activewindow" in data.decode():
+            events = data.decode().split("\n")
+            print(events)
+            try:
+                window_class = events[0].split(">>")[1].split(",")[0].strip()
+            except IndexError:
+                window_class = "force_generic"
+            try:
+                window_title = events[0].split(">>")[1].split(",")[1].strip()       
+            except IndexError:
+                window_title = ""
+            try:
+                window_address = events[1].split(">>")[1].split(",")[0].strip()
+            except IndexError:
+                window_address = ""
+            event_dict = {
+                'activewindow': 
+                    {
+                    'window_class': window_class, 
+                    'window_title': window_title, 
+                    'window_address': window_address
+                    }
                 }
-            }
 
-        match event_dict['activewindow']['window_class']:
-            # match most window classes as substrings
-            # in the cases where applications are verified to have full raw controller input support
-            # the null profile is loaded because having a second profile can interfere with navigation
-            case x if "ghostty" in x:
-                set_controller_gbus(0, ControllerSet.GENERIC)
-            case x if "helium" in x:
-                set_controller_gbus(0, ControllerSet.GENERIC)
-            case x if "chrome-" in x and "__" in x:
-                set_controller_gbus(0, ControllerSet.GENERIC)
-            case x if "jellyfin" in x:
-                set_controller_gbus(0, ControllerSet.MEDIA)
-            case x if "youtube" in x:
-                set_controller_gbus(0, ControllerSet.MEDIA)
-            case x if "RetroArch" in x:
-                set_controller_gbus(0, ControllerSet.NULL_SET)
-            case x if "steam" in x:
-                set_controller_gbus(0, ControllerSet.NULL_SET)
-            case x if "heroic" in x:
-                set_controller_gbus(0, ControllerSet.NULL_SET)
-            case x if "rpcs3" in x:
-                if "RPCS3" in event_dict['activewindow']['window_title']:
+            match event_dict['activewindow']['window_class']:
+                # match most window classes as substrings
+                # in the cases where applications are verified to have full raw controller input support
+                # the null profile is loaded because having a second profile can interfere with navigation
+                case x if "force_generic" in x:
                     set_controller_gbus(0, ControllerSet.GENERIC)
-                else:
-                    set_controller_gbus(0, ControllerSet.NULL_SET)
-            case x if "lutris" in x:
-                if "Lutris" in event_dict['activewindow']['window_title']:
+                case x if "ghostty" in x:
                     set_controller_gbus(0, ControllerSet.GENERIC)
-                else:
+                case x if "helium" in x:
+                    set_controller_gbus(0, ControllerSet.GENERIC)
+                case x if "jellyfin" in x:
+                    set_controller_gbus(0, ControllerSet.MEDIA)
+                case x if "youtube" in x:
+                    set_controller_gbus(0, ControllerSet.MEDIA)
+                case x if "chrome-" in x and "__" in x:
+                    set_controller_gbus(0, ControllerSet.GENERIC)
+                case x if "RetroArch" in x:
                     set_controller_gbus(0, ControllerSet.NULL_SET)
-            case _:
-                set_controller_gbus(0, ControllerSet.NULL_SET)
+                case x if "steam" in x:
+                    set_controller_gbus(0, ControllerSet.NULL_SET)
+                case x if "heroic" in x:
+                    set_controller_gbus(0, ControllerSet.NULL_SET)
+                case x if "rpcs3" in x:
+                    if "RPCS3" in event_dict['activewindow']['window_title']:
+                        set_controller_gbus(0, ControllerSet.GENERIC)
+                    else:
+                        set_controller_gbus(0, ControllerSet.NULL_SET)
+                case x if "lutris" in x:
+                    if "Lutris" in event_dict['activewindow']['window_title']:
+                        set_controller_gbus(0, ControllerSet.GENERIC)
+                    else:
+                        set_controller_gbus(0, ControllerSet.NULL_SET)
+                case _:
+                    set_controller_gbus(0, ControllerSet.NULL_SET)
