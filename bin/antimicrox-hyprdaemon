@@ -1,0 +1,98 @@
+#!/usr/bin/python3
+
+import socket
+import os
+import subprocess
+
+HIS = os.getenv("HYPRLAND_INSTANCE_SIGNATURE")
+RUNTIME_DIR = os.getenv("XDG_RUNTIME_DIR")
+
+global listen
+listen = True
+
+# fake enum for default sets in provided controller config
+class ControllerSet:
+    GENERIC = 0
+    MEDIA = 1
+    NULL_SET = 2
+    MINIMAL = 3
+
+# constructs hyprland IPC socket path
+ipc_socket = os.path.abspath(f"{RUNTIME_DIR}/hypr/{HIS}/.socket2.sock")
+
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.connect(ipc_socket)
+
+def set_controller_gbus(device_id:int, set_id:int) -> null:
+    '''
+    sets the active profile of the controller at index device_id to loaded profiles set_id
+    '''
+    subprocess.run([
+        "gdbus", "call", "--session", 
+        "--dest", "io.github.antimicrox", 
+        "--object-path", f"/InputDevice/{device_id}", 
+        "--method", "io.github.antimicrox.InputDevice.setActiveSetNumber", f"{set_id}"])
+    return
+
+def get_controller_set_gbus(device_id:int) -> int:
+    '''
+    gets the active profiles currently running set of the controller at index device_id
+    returns -1 on failure
+    '''
+    stdresult = subprocess.run([
+        "gdbus", "call", "--session", 
+        "--dest", "io.github.antimicrox", 
+        "--object-path", f"/InputDevice/{device_id}", 
+        "--method", "io.github.antimicrox.InputDevice.getActiveSetNumber"],
+        capture_output=True, text=True)
+    try:
+        # output is formatted like (0,), brittle matching the second element :)
+        return int(stdresult.stdout[1])
+    except:
+        return -1
+
+while listen:
+    data = sock.recv(4096)
+    # filter to only activewindow
+    if "activewindow" in data.decode():
+        events = data.decode().split("\n")
+        print(events)        
+        event_dict = {
+            'activewindow': 
+                {
+                'window_class': events[0].split(">>")[1].split(",")[0].strip(), 'window_title': events[0].split(">>")[1].split(",")[1].strip(), 'window_address': events[1].split(">>")[1].split(",")[0].strip() if len(events) > 1 else None
+                }
+            }
+
+        match event_dict['activewindow']['window_class']:
+            # match most window classes as substrings
+            # in the cases where applications are verified to have full raw controller input support
+            # the null profile is loaded because having a second profile can interfere with navigation
+            case x if "ghostty" in x:
+                set_controller_gbus(0, ControllerSet.GENERIC)
+            case x if "helium" in x:
+                set_controller_gbus(0, ControllerSet.GENERIC)
+            case x if "chrome-" in x and "__" in x:
+                set_controller_gbus(0, ControllerSet.GENERIC)
+            case x if "jellyfin" in x:
+                set_controller_gbus(0, ControllerSet.MEDIA)
+            case x if "youtube" in x:
+                set_controller_gbus(0, ControllerSet.MEDIA)
+            case x if "RetroArch" in x:
+                set_controller_gbus(0, ControllerSet.NULL_SET)
+            case x if "steam" in x:
+                set_controller_gbus(0, ControllerSet.NULL_SET)
+            case x if "heroic" in x:
+                set_controller_gbus(0, ControllerSet.NULL_SET)
+            case x if "rpcs3" in x:
+                if "RPCS3" in event_dict['activewindow']['window_title']:
+                    set_controller_gbus(0, ControllerSet.GENERIC)
+                else:
+                    set_controller_gbus(0, ControllerSet.NULL_SET)
+            case x if "lutris" in x:
+                if "Lutris" in event_dict['activewindow']['window_title']:
+                    set_controller_gbus(0, ControllerSet.GENERIC)
+                else:
+                    set_controller_gbus(0, ControllerSet.NULL_SET)
+            case _:
+                set_controller_gbus(0, ControllerSet.NULL_SET)
