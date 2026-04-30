@@ -100,6 +100,7 @@ def handle_pause(signum, frame):
     if not paused:
         paused = True
         saved_set_id = get_controller_set_gbus(0)
+        set_controller_gbus(0, ControllerSet.GENERIC)
         logger.info(f"PAUSED - Saved controller set: {saved_set_id}")
     else:
         paused = False
