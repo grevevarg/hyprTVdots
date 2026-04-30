@@ -10,3 +10,4 @@ yay
 bzmenu
 iwmenu
 antimicrox-git
+rpcs3-git
