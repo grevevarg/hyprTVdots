@@ -32,16 +32,16 @@ class DesktopFileData:
         # variables with values for .desktop file
         self.version = "1.5"
         self.type = "Application"
-        self.app_name = app_name
+        self.app_name = app_name + "- PWA"
         self.comment = f"Chromium based PWA for {self.app_name}"
         self.terminal_exec = "false"
-        self.appicon_path = self.get_icon()
         self.weak_sanitize_appname = self.sanitize_filename(self.app_name)
+        self.appicon_path = self.get_icon()
         # really brittle, if url contains a path to a tv endpoint then embed different User-Agent to hopefully get proper functionality
         if "/tv" in self.app_url:
-            self.exec_str = f'setsid {browser} --user-data-dir="{os.getenv("XDG_CACHE_HOME") if os.getenv("XDG_CACHE_HOME") else Path(HOMEDIR / ".cache")}/{self.weak_sanitize_appname}" --no-default-browser-check --app="{self.app_url}" --user-agent "Mozilla/5.0 (X11; Linux x86_64; rv:62.0) Gecko/20100101 Firefox/62.0" &'
+            self.exec_str = f'setsid {browser} --no-default-browser-check --app="{self.app_url}" --user-agent "Mozilla/5.0 (X11; Linux x86_64; rv:62.0) Gecko/20100101 Firefox/62.0" &'
         else:
-            self.exec_str = f'setsid {browser} --user-data-dir="{os.getenv("XDG_CACHE_HOME") if os.getenv("XDG_CACHE_HOME") else Path(HOMEDIR / ".cache")}/{self.weak_sanitize_appname}" --no-default-browser-check --app="{self.app_url}"'
+            self.exec_str = f'setsid {browser} --no-default-browser-check --app="{self.app_url}"'
     
     def sanitize_filename(self, name: str):
         return "".join(c for c in name.casefold() if c.isalnum() or c in '-_')
@@ -50,7 +50,7 @@ class DesktopFileData:
         
         icon_path = ICON_DIR / f"{self.weak_sanitize_appname}.png"
         
-        if Path(self.appicon).exists() and self.appicon != None:
+        if self.appicon != None and Path(self.appicon).exists():
             shutil.copy(Path(self.appicon), icon_path)
             return realpath(icon_path)
         if not self.appicon == None:
@@ -67,8 +67,7 @@ class DesktopFileData:
 
     def write_desktop_file(self):
         desktop_file_path = Path(APPLICATIONDIR / f"{self.weak_sanitize_appname}.desktop")
-        file_contents = f"""
-        [Desktop Entry]
+        file_contents = f"""[Desktop Entry]
         Type={self.type}
         Version={self.version}
         Name={self.app_name}
