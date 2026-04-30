@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+hyprdaemon_pid=$(pgrep -f antimicrox-hyprdaemon)
+
+kill -USR1 $hyprdaemon_pid
+
+pkill -USR1 waybar
