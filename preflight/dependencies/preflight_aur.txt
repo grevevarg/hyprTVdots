@@ -9,3 +9,4 @@ xpadneo-dkms
 yay
 bzmenu
 iwmenu
+antimicrox-git

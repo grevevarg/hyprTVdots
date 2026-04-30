@@ -11,7 +11,6 @@ thunar
 ncdu
 plocate
 ark
-antimicrox
 ghostty
 zsh
 hyprpaper
@@ -34,11 +33,12 @@ docker-compose
 fastfetch
 flatpak
 cifs-utils
-mangohud
-lib32-mangohud
-goverlay
 xorg-xrandr
 libinput
 libinput-tools
 dunst
 swayosd
+socat
+mangohud
+lib32-mangohud
+goverlay
