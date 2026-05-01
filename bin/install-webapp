@@ -2,11 +2,6 @@
 
 set -e
 
-if ! [[ $XDG_CACHE_HOME ]]; then
-  XDG_CACHE_HOME="$HOME/.cache"
-  mkdir -p "$XDG_CACHE_HOME"
-fi
-
 if [ "$#" -lt 3 ]; then
   echo -e "\e[32mLet's create a new web app you can start with the app launcher.\n\e[0m"
   APP_NAME=$(gum input --prompt "Name> " --placeholder "My favorite web app")
@@ -86,15 +81,13 @@ DESKTOP_FILE="$HOME/.local/share/applications/$APP_NAME.desktop"
 
 APP_NAME_SANITIZED="$(echo "$APP_NAME" | sed 's/ //g')"
 
-# set up individual folders for persistent sessions i guess. im sure there are smarter ways to do this :)
-mkdir -p "$XDG_CACHE_HOME/$APP_NAME_SANITIZED"
 
 cat >"$DESKTOP_FILE" <<EOF
 [Desktop Entry]
 Version=1.0
 Name=$APP_NAME
 Comment=$APP_NAME
-Exec=setsid helium-browser --user-data-dir="$XDG_CACHE_HOME/$APP_NAME_SANITIZED" --no-default-browser-check --app="$APP_URL" &
+Exec=setsid helium-browser --no-default-browser-check --app="$APP_URL" &
 Terminal=false
 Type=Application
 Icon=$ICON_PATH
@@ -107,9 +100,6 @@ if [[ -n $MIME_TYPES ]]; then
 fi
 
 chmod +x "$DESKTOP_FILE"
-
-# not sure about this one chief
-chmod 700 "$XDG_CACHE_HOME/$APP_NAME_SANITIZED"
 
 if [[ $INTERACTIVE_MODE == true ]]; then
   echo -e "You can now find $APP_NAME using the app launcher (SUPER + SPACE)\n"
