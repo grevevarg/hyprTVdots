@@ -3,6 +3,6 @@ Description=Antimicrox Hyprland Daemon
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/antimicrox-hyprdaemon
+ExecStart=/usr/local/bin/antimicrox-hyprdaemon
 Restart=on-failure
 RestartSec=5
