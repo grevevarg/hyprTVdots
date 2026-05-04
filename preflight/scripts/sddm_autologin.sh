@@ -2,7 +2,7 @@
 
 sudo mkdir -p /etc/sddm.conf.d
 sudo cat << EOF >> /etc/sddm.conf.d/autologin.conf
-[General]
+[Autologin]
 Session=hyprland
 User=${SUDO_USER:-$(whoami)}
 EOF
