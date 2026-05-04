@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-systemctl enable --now antimicrox-hyprdaemon
+systemctl enable --now --user antimicrox-hyprdaemon
