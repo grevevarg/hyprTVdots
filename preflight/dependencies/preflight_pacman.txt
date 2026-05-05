@@ -27,3 +27,5 @@ lib32-mangohud
 goverlay
 python-requests
 waybar
+hypridle
+hyprlock
