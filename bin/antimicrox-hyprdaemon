@@ -3,47 +3,58 @@
 import signal
 import socket
 import os
+import select
 import subprocess
 import logging
+import time
+import json
 from logging.handlers import RotatingFileHandler
 
 HIS = os.getenv("HYPRLAND_INSTANCE_SIGNATURE")
 RUNTIME_DIR = os.getenv("XDG_RUNTIME_DIR")
 
-# Setup logging
-log_dir = os.path.expanduser("~/.local/share/antimicrox-hyprdaemon")
-os.makedirs(log_dir, exist_ok=True)
+ANTIMICROX_BUS_NAME = "io.github.antimicrox"
+# I4 (open): device index 0 is hardcoded, which breaks if a second controller or dongle appears
+DEVICE_ID = 0
+# how often antimicrox presence is checked when no events arrive (seconds)
+PRESENCE_POLL_INTERVAL = 5
 
 logger = logging.getLogger("antimicrox-hyprdaemon")
-logger.setLevel(logging.DEBUG)
-
-# File handler with rotation (max 5MB per file, keep 3 backups)
-file_handler = RotatingFileHandler(
-    os.path.join(log_dir, "daemon.log"),
-    maxBytes=5*1024*1024,
-    backupCount=3
-)
-file_handler.setLevel(logging.DEBUG)
-
-# Console handler (INFO level only)
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-
-# Formatter
-formatter = logging.Formatter(
-    '[%(asctime)s] %(levelname)-8s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-file_handler.setFormatter(formatter)
-console_handler.setFormatter(formatter)
-
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
 
 # State management
-paused = False
-saved_set_id = None
 listen = True
+
+def setup_logging() -> None:
+    '''
+    file log with rotation plus console (journal) output. called from main() so importing the module has no side effects
+    '''
+    log_dir = os.path.expanduser("~/.local/share/antimicrox-hyprdaemon")
+    os.makedirs(log_dir, exist_ok=True)
+
+    logger.setLevel(logging.DEBUG)
+
+    # File handler with rotation (max 5MB per file, keep 3 backups)
+    file_handler = RotatingFileHandler(
+        os.path.join(log_dir, "daemon.log"),
+        maxBytes=5*1024*1024,
+        backupCount=3
+    )
+    file_handler.setLevel(logging.DEBUG)
+
+    # Console handler (INFO level only)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+
+    # Formatter
+    formatter = logging.Formatter(
+        '[%(asctime)s] %(levelname)-8s %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
 # fake enum for default sets in provided controller config
 class ControllerSet:
@@ -52,28 +63,23 @@ class ControllerSet:
     NULL_SET = 2
     MINIMAL = 3
 
-# constructs hyprland IPC socket path
-ipc_socket = os.path.abspath(f"{RUNTIME_DIR}/hypr/{HIS}/.socket2.sock")
-
-sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.connect(ipc_socket)
-logger.info(f"Connected to Hyprland IPC socket: {ipc_socket}")
-
-def set_controller_gbus(device_id:int, set_id:int) -> None:
+def set_controller_gbus(device_id:int, set_id:int) -> bool:
     '''
     sets the active profile of the controller at index device_id to loaded profiles set_id
+    returns True on success
     '''
     try:
         subprocess.run([
-            "gdbus", "call", "--session", 
-            "--dest", "io.github.antimicrox", 
-            "--object-path", f"/InputDevice/{device_id}", 
+            "gdbus", "call", "--session",
+            "--dest", ANTIMICROX_BUS_NAME,
+            "--object-path", f"/InputDevice/{device_id}",
             "--method", "io.github.antimicrox.InputDevice.setActiveSetNumber", f"{set_id}"],
             check=True, capture_output=True)
         logger.debug(f"Set controller {device_id} to set {set_id}")
+        return True
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to set controller {device_id} to set {set_id}: {e}")
-    return
+        return False
 
 def get_controller_set_gbus(device_id:int) -> int:
     '''
@@ -82,9 +88,9 @@ def get_controller_set_gbus(device_id:int) -> int:
     '''
     try:
         result = subprocess.run([
-            "gdbus", "call", "--session", 
-            "--dest", "io.github.antimicrox", 
-            "--object-path", f"/InputDevice/{device_id}", 
+            "gdbus", "call", "--session",
+            "--dest", ANTIMICROX_BUS_NAME,
+            "--object-path", f"/InputDevice/{device_id}",
             "--method", "io.github.antimicrox.InputDevice.getActiveSetNumber"],
             capture_output=True, text=True, check=True)
         return int(result.stdout[1])
@@ -92,22 +98,198 @@ def get_controller_set_gbus(device_id:int) -> int:
         logger.warning(f"Failed to get controller {device_id} set: {e}")
         return -1
 
-def handle_pause(signum, frame):
+def get_antimicrox_owner() -> str | None:
     '''
-    Signal handler for SIGUSR1 - pauses the daemon and saves current set
+    returns the unique bus name (e.g. ":1.42") owning io.github.antimicrox, or None if antimicrox isn't on the bus.
+    the unique name changes when antimicrox restarts, so a restart between two checks is noticed too
     '''
-    global paused, saved_set_id
-    if not paused:
-        paused = True
-        saved_set_id = get_controller_set_gbus(0)
-        set_controller_gbus(0, ControllerSet.GENERIC)
-        logger.info(f"PAUSED - Saved controller set: {saved_set_id}")
-    else:
-        paused = False
-        if saved_set_id is not None:
-            set_controller_gbus(0, saved_set_id)
-            logger.info(f"RESUMED - Restored controller set: {saved_set_id}")
-        saved_set_id = None
+    try:
+        result = subprocess.run([
+            "gdbus", "call", "--session",
+            "--dest", "org.freedesktop.DBus",
+            "--object-path", "/org/freedesktop/DBus",
+            "--method", "org.freedesktop.DBus.GetNameOwner", ANTIMICROX_BUS_NAME],
+            capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError:
+        return None
+    # gdbus prints ('<name>',)
+    owner = result.stdout.strip().removeprefix("(").removesuffix(",)").strip("'")
+    return owner or None
+
+def select_set(window_class:str, window_title:str) -> int:
+    '''
+    maps the focused window to a controller set. unmatched windows (and an empty class) get NULL_SET on purpose:
+    an unknown window is most likely a game, so it gets the controller
+    '''
+    match window_class:
+        case x if "force_generic" in x:
+            return ControllerSet.GENERIC
+        case x if "ghostty" in x:
+            return ControllerSet.GENERIC
+        case x if "helium" in x:
+            return ControllerSet.GENERIC
+        case x if "jellyfin" in x:
+            return ControllerSet.MEDIA
+        case x if "youtube" in x:
+            return ControllerSet.MEDIA
+        case x if "chrome-" in x and "__" in x:
+            return ControllerSet.GENERIC
+        case x if "RetroArch" in x:
+            return ControllerSet.NULL_SET
+        case x if "steam" in x:
+            return ControllerSet.NULL_SET
+        case x if "heroic" in x:
+            return ControllerSet.NULL_SET
+        case x if "rpcs3" in x:
+            if "RPCS3" in window_title:
+                return ControllerSet.GENERIC
+            return ControllerSet.NULL_SET
+        case x if "lutris" in x:
+            if "Lutris" in window_title:
+                return ControllerSet.GENERIC
+            return ControllerSet.NULL_SET
+        case x if "antimicrox" in x:
+            return ControllerSet.GENERIC
+        case _:
+            return ControllerSet.NULL_SET
+
+def parse_activewindow(line:str) -> tuple[str, str] | None:
+    '''
+    returns (class, title) for an `activewindow>>class,title` line, None for any other event.
+    activewindowv2 carries a window address, never a class, so it is ignored.
+    only the first comma separates class and title; titles may contain commas
+    '''
+    prefix = "activewindow>>"
+    if not line.startswith(prefix):
+        return None
+    window_class, _, window_title = line[len(prefix):].partition(",")
+    return window_class.strip(), window_title.strip()
+
+class LineBuffer:
+    '''
+    splits the socket2 byte stream into complete lines; an incomplete trailing line is kept for the next read
+    '''
+    def __init__(self):
+        self._pending = b""
+
+    def feed(self, data:bytes) -> list[str]:
+        *lines, self._pending = (self._pending + data).split(b"\n")
+        return [line.decode(errors="replace") for line in lines if line]
+
+class Controller:
+    '''
+    tracks the focused window and antimicrox presence, and applies sets only when they change
+    '''
+    def __init__(self, set_fn, presence_fn, get_fn):
+        self.set_fn = set_fn
+        self.presence_fn = presence_fn
+        self.get_fn = get_fn
+        self.owner = None           # antimicrox unique bus name, None while absent
+        self.last_applied = None    # last set applied successfully since antimicrox (re)appeared
+        self.current = None         # (class, title) of the focused window
+        self.paused = False
+        self.saved_set_id = None
+
+    def start(self) -> None:
+        self.refresh_presence()
+        if self.owner is None:
+            logger.info(f"antimicrox is not running; checking every {PRESENCE_POLL_INTERVAL} s and on focus changes")
+
+    def on_focus(self, window_class:str, window_title:str) -> None:
+        # an empty class means nothing is focused, which hyprland reports between every step of a window cycle.
+        # keep the current set: switching to NULL_SET and back makes antimicrox re-press a held button, so holding
+        # the cycle button looped as fast as the set calls returned (I38)
+        if not window_class:
+            logger.debug("Nothing focused; keeping the current set")
+            return
+        changed = (window_class, window_title) != self.current
+        if changed:
+            logger.info(f"Window changed - Class: {window_class}, Title: {window_title}")
+        self.current = (window_class, window_title)
+        if self.paused:
+            return
+        if self.owner is None:
+            # one presence check per focus change; if antimicrox is back, refresh_presence applies the current set
+            if changed:
+                self.refresh_presence()
+            return
+        self.apply_current()
+
+    def poll(self) -> None:
+        self.refresh_presence()
+
+    def refresh_presence(self) -> None:
+        owner = self.presence_fn()
+        if owner == self.owner:
+            return
+        previous, self.owner = self.owner, owner
+        self.last_applied = None
+        if owner is None:
+            logger.warning("antimicrox is gone; skipping set changes until it is back")
+            return
+        if previous is None:
+            logger.info(f"antimicrox is present ({owner})")
+        else:
+            logger.info(f"antimicrox restarted ({previous} -> {owner})")
+        if not self.paused:
+            self.apply_current()
+
+    def apply_current(self) -> None:
+        if self.current is not None:
+            self.apply(select_set(*self.current))
+
+    def apply(self, set_id:int) -> bool:
+        if self.owner is None:
+            return False
+        if set_id == self.last_applied:
+            logger.debug(f"Controller {DEVICE_ID} already on set {set_id}; skipping")
+            return True
+        if self.set_fn(DEVICE_ID, set_id):
+            self.last_applied = set_id
+            return True
+        # the real set is unknown after a failure, so the next request always calls again
+        self.last_applied = None
+        self.refresh_presence()
+        return False
+
+    def toggle_pause(self) -> None:
+        '''
+        SIGUSR1 - pauses the daemon and saves current set, or resumes and restores it
+        '''
+        if not self.paused:
+            self.paused = True
+            self.saved_set_id = self.get_fn(DEVICE_ID)
+            self.apply(ControllerSet.GENERIC)
+            logger.info(f"PAUSED - Saved controller set: {self.saved_set_id}")
+        else:
+            self.paused = False
+            if self.saved_set_id is not None:
+                self.apply(self.saved_set_id)
+                logger.info(f"RESUMED - Restored controller set: {self.saved_set_id}")
+            self.saved_set_id = None
+
+def parse_active_window_json(text:str) -> tuple[str, str] | None:
+    '''
+    returns (class, title) from `hyprctl activewindow -j` output, None when nothing is focused (hyprctl prints {})
+    '''
+    try:
+        window = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(window, dict) or not window.get("class"):
+        return None
+    return window["class"], window.get("title", "")
+
+def get_active_window() -> tuple[str, str] | None:
+    '''
+    asks hyprland for the focused window, so a set can be applied before the first activewindow event (I35)
+    '''
+    try:
+        result = subprocess.run(["hyprctl", "activewindow", "-j"], capture_output=True, text=True, check=True, timeout=5)
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning(f"Could not query the active window: {e}")
+        return None
+    return parse_active_window_json(result.stdout)
 
 def handle_exit(signum, frame):
     '''
@@ -117,89 +299,56 @@ def handle_exit(signum, frame):
     listen = False
     logger.info("Daemon shutting down...")
 
-def main():
-    global paused, listen
-    
+def main() -> int:
+    setup_logging()
     logger.info("=== antimicrox-hyprdaemon started ===")
-    
+
+    # constructs hyprland IPC socket path
+    ipc_socket = os.path.abspath(f"{RUNTIME_DIR}/hypr/{HIS}/.socket2.sock")
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(ipc_socket)
+    logger.info(f"Connected to Hyprland IPC socket: {ipc_socket}")
+
+    controller = Controller(set_controller_gbus, get_antimicrox_owner, get_controller_set_gbus)
+
     # Register signal handlers
-    signal.signal(signal.SIGUSR1, handle_pause)  # Toggle pause with kill -USR1 <pid>
+    signal.signal(signal.SIGUSR1, lambda signum, frame: controller.toggle_pause())  # Toggle pause with kill -USR1 <pid>
     signal.signal(signal.SIGTERM, handle_exit)   # Graceful shutdown with kill <pid>
     signal.signal(signal.SIGINT, handle_exit)    # Also handle Ctrl+C
-    
+
+    controller.start()
+    # seed the focused window; without it nothing is applied until the first focus change (I35)
+    active = get_active_window()
+    if active is not None:
+        controller.on_focus(*active)
+    lines = LineBuffer()
+    next_poll = time.monotonic() + PRESENCE_POLL_INTERVAL
+    exit_code = 0
+
     while listen:
         try:
-            data = sock.recv(4096)
-            
-            # Skip processing if paused
-            if paused:
-                continue
-                
-            # filter to only activewindow
-            if "activewindow" in data.decode():
-                events = data.decode().split("\n")
-                logger.debug(f"Raw events: {events}")
-                
-                try:
-                    window_class = events[0].split(">>")[1].split(",")[0].strip()
-                except IndexError:
-                    window_class = "force_generic"
-                try:
-                    window_title = events[0].split(">>")[1].split(",")[1].strip()       
-                except IndexError:
-                    window_title = ""
-                try:
-                    window_address = events[1].split(">>")[1].split(",")[0].strip()
-                except IndexError:
-                    window_address = ""
-                
-                logger.info(f"Window changed - Class: {window_class}, Title: {window_title}")
-                
-                event_dict = {
-                    'activewindow': 
-                        {
-                        'window_class': window_class, 
-                        'window_title': window_title, 
-                        'window_address': window_address
-                        }
-                    }
-
-                match event_dict['activewindow']['window_class']:
-                    case x if "force_generic" in x:
-                        set_controller_gbus(0, ControllerSet.GENERIC)
-                    case x if "ghostty" in x:
-                        set_controller_gbus(0, ControllerSet.GENERIC)
-                    case x if "helium" in x:
-                        set_controller_gbus(0, ControllerSet.GENERIC)
-                    case x if "jellyfin" in x:
-                        set_controller_gbus(0, ControllerSet.MEDIA)
-                    case x if "youtube" in x:
-                        set_controller_gbus(0, ControllerSet.MEDIA)
-                    case x if "chrome-" in x and "__" in x:
-                        set_controller_gbus(0, ControllerSet.GENERIC)
-                    case x if "RetroArch" in x:
-                        set_controller_gbus(0, ControllerSet.NULL_SET)
-                    case x if "steam" in x:
-                        set_controller_gbus(0, ControllerSet.NULL_SET)
-                    case x if "heroic" in x:
-                        set_controller_gbus(0, ControllerSet.NULL_SET)
-                    case x if "rpcs3" in x:
-                        if "RPCS3" in event_dict['activewindow']['window_title']:
-                            set_controller_gbus(0, ControllerSet.GENERIC)
-                        else:
-                            set_controller_gbus(0, ControllerSet.NULL_SET)
-                    case x if "lutris" in x:
-                        if "Lutris" in event_dict['activewindow']['window_title']:
-                            set_controller_gbus(0, ControllerSet.GENERIC)
-                        else:
-                            set_controller_gbus(0, ControllerSet.NULL_SET)
-                    case _:
-                        set_controller_gbus(0, ControllerSet.NULL_SET)
+            readable, _, _ = select.select([sock], [], [], max(0, next_poll - time.monotonic()))
+            if readable:
+                data = sock.recv(4096)
+                if not data:
+                    # Hyprland closed the socket; exit non-zero so Restart=on-failure starts a fresh daemon
+                    logger.error("Hyprland IPC socket closed")
+                    exit_code = 1
+                    break
+                for line in lines.feed(data):
+                    event = parse_activewindow(line)
+                    if event is not None:
+                        logger.debug(f"Raw event: {line}")
+                        controller.on_focus(*event)
+            if time.monotonic() >= next_poll:
+                controller.poll()
+                next_poll = time.monotonic() + PRESENCE_POLL_INTERVAL
         except Exception as e:
             logger.error(f"Unexpected error in main loop: {e}", exc_info=True)
-    
+
+    sock.close()
     logger.info("=== antimicrox-hyprdaemon stopped ===")
+    return exit_code
 
 if __name__ == "__main__":
-    main()
-    sock.close()
+    raise SystemExit(main())
