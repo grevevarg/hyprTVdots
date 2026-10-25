@@ -182,10 +182,18 @@ class ControllerTests(unittest.TestCase):
         feed(controller, buffer, JELLYFIN_FOCUS)
         self.assertEqual(len(fake.calls), 2)
 
-    def test_empty_class_gets_null_set(self):
+    def test_empty_class_keeps_current_set(self):
         fake, controller, buffer = make()
         feed(controller, buffer, HELIUM_FOCUS + NOTHING_FOCUSED)
-        self.assertEqual(set_ids(fake), [Set.GENERIC, Set.NULL_SET])
+        self.assertEqual(set_ids(fake), [Set.GENERIC])
+        self.assertEqual(controller.current, ("helium", "New Tab - Helium"))
+
+    def test_cycle_through_empty_focus_only_calls_on_real_changes(self):
+        # I38: hyprland reports nothing focused between every cyclenext step
+        fake, controller, buffer = make()
+        feed(controller, buffer, HELIUM_FOCUS + NOTHING_FOCUSED + LUTRIS_FOCUS + NOTHING_FOCUSED
+             + JELLYFIN_FOCUS + NOTHING_FOCUSED + HELIUM_FOCUS)
+        self.assertEqual(set_ids(fake), [Set.GENERIC, Set.MEDIA, Set.GENERIC])
 
     def test_absent_skips_calls_one_check_per_focus_change(self):
         fake, controller, buffer = make(owner=None)

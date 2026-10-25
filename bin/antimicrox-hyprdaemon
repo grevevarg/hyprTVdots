@@ -195,6 +195,12 @@ class Controller:
             logger.info(f"antimicrox is not running; checking every {PRESENCE_POLL_INTERVAL} s and on focus changes")
 
     def on_focus(self, window_class:str, window_title:str) -> None:
+        # an empty class means nothing is focused, which hyprland reports between every step of a window cycle.
+        # keep the current set: switching to NULL_SET and back makes antimicrox re-press a held button, so holding
+        # the cycle button looped as fast as the set calls returned (I38)
+        if not window_class:
+            logger.debug("Nothing focused; keeping the current set")
+            return
         changed = (window_class, window_title) != self.current
         if changed:
             logger.info(f"Window changed - Class: {window_class}, Title: {window_title}")
