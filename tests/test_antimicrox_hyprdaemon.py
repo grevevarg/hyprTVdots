@@ -6,6 +6,7 @@ run from the repo root: python3 -m unittest discover -s tests -v
 
 import importlib.machinery
 import importlib.util
+import json
 import logging
 import os
 import subprocess
@@ -280,6 +281,31 @@ class PresenceQueryTests(unittest.TestCase):
         error = subprocess.CalledProcessError(1, "gdbus", stderr="NameHasNoOwner")
         with mock.patch.object(daemon.subprocess, "run", side_effect=error):
             self.assertIsNone(daemon.get_antimicrox_owner())
+
+
+class ActiveWindowQueryTests(unittest.TestCase):
+    # I35: the focused window is seeded at start from `hyprctl activewindow -j`
+    def test_focused_window_parsed(self):
+        out = json.dumps({"address": "0x55d3c0a1b2d0", "class": "org.jellyfin.JellyfinDesktop", "title": "Jellyfin"})
+        done = subprocess.CompletedProcess([], 0, stdout=out, stderr="")
+        with mock.patch.object(daemon.subprocess, "run", return_value=done) as run:
+            self.assertEqual(daemon.get_active_window(), ("org.jellyfin.JellyfinDesktop", "Jellyfin"))
+        self.assertEqual(run.call_args.args[0], ["hyprctl", "activewindow", "-j"])
+
+    def test_nothing_focused(self):
+        self.assertIsNone(daemon.parse_active_window_json("{}"))
+        self.assertIsNone(daemon.parse_active_window_json('{"class": "", "title": ""}'))
+
+    def test_garbage_or_failure(self):
+        self.assertIsNone(daemon.parse_active_window_json("HYPRLAND_INSTANCE_SIGNATURE not set!"))
+        error = subprocess.CalledProcessError(1, "hyprctl")
+        with mock.patch.object(daemon.subprocess, "run", side_effect=error):
+            self.assertIsNone(daemon.get_active_window())
+
+    def test_seed_applies_set_without_focus_event(self):
+        fake, controller, buffer = make()
+        controller.on_focus(*daemon.parse_active_window_json('{"class": "helium", "title": "New Tab - Helium"}'))
+        self.assertEqual(set_ids(fake), [Set.GENERIC])
 
 
 if __name__ == "__main__":
