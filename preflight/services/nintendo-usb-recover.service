@@ -1,0 +1,11 @@
+[Unit]
+Description=Re-plug a USB Switch Pro Controller whose hid-nintendo probe failed at boot (I33)
+After=systemd-udevd.service
+
+[Service]
+# exec, not oneshot: the probe wait (up to ~50 s on a failure) must not hold up the boot or the autologin
+Type=exec
+ExecStart=/usr/local/bin/nintendo-usb-recover
+
+[Install]
+WantedBy=multi-user.target
