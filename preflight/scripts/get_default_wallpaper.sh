@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 # i dont even think the wallpaper will be visible on this system lol
 # source: https://x.com/ancy_hibarigm21/status/1410588199408181251 :)

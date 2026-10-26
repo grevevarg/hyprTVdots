@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+# the preflight scripts use $(pwd) as the repo root
+cd "$(dirname "$0")"
 
 # install dependencies
 ./preflight/scripts/install_from_pacman.sh

@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+# already installed on re-runs (and on cachyOS); the clone below would fail on an existing yay/ dir
+if command -v yay > /dev/null; then
+    exit 0
+fi
 
 prevdir="$(pwd)"
 
