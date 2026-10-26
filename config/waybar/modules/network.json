@@ -3,6 +3,6 @@
       "format-ethernet": " ",
       "format-wifi": " ",
       "format-disconnected": "󰖪 ",
-      "on-click": "iwmenu rofi -dmenu -theme ~/.config/rofi/global/wifi.rasi > /dev/null 2>&1"
+      "on-click": "iwmenu -l custom --launcher-command 'rofi -dmenu -theme ~/.config/rofi/global/wifi.rasi' > /dev/null 2>&1"
     }
 }

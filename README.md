@@ -5,6 +5,7 @@ for easier overview or for other people to borrow parts from it.</br>
 if you decide to install, note that there be dragons and that this is written for cachyOS. </br>
 It should be easily migrateable to most systemd-based Arch distros.</br>
 As the name implies, this is for hyprland and if you want to use another DE you should probably only read through this project and borrow the parts relevant to you.</br>
+The hyprland config is the Lua format (`config/hypr/hyprland.lua` + `modules/`), so it needs Hyprland 0.55 or newer (written for 0.56.2). hypridle, hyprlock (`powermenu.conf`) and hyprpaper still use their `.conf` files.</br>
 
 # features
 controller centric navigation, using a daemon for swapping between profiles based on currently active window name
