@@ -1,1 +1,1 @@
-com.github.iwalton3.jellyfin-media-player
+org.jellyfin.JellyfinDesktop

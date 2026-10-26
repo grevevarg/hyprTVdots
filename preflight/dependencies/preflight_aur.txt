@@ -1,7 +1,6 @@
 atlauncher-bin
 brave-bin
 chromium-widevine
-heroic-games-launcher-bin
 protonhax
 protonplus
 proton-ge-custom-bin
@@ -11,4 +10,4 @@ bzmenu
 iwmenu
 antimicrox-git
 rpcs3-git
-helium-browser
+helium-browser-bin
