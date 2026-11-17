@@ -117,6 +117,7 @@ class SelectSetTests(unittest.TestCase):
             ("chrome-youtube.com__tv-Default", "YouTube on TV", Set.MEDIA),
             ("helium", "New Tab", Set.GENERIC),
             ("com.mitchellh.ghostty", "~", Set.GENERIC),
+            ("Alacritty", "~", Set.GENERIC),
             ("net.lutris.Lutris", "Lutris", Set.GENERIC),
             ("net.lutris.Lutris", "Some game", Set.NULL_SET),
             ("rpcs3", "FPS: 60, RPCS3 0.0.38", Set.GENERIC),
@@ -124,7 +125,7 @@ class SelectSetTests(unittest.TestCase):
             ("steam", "Steam", Set.NULL_SET),
             ("antimicrox", "antimicrox", Set.GENERIC),
             ("SomeGame.x86_64", "Some Game", Set.NULL_SET),   # I5: unmatched -> NULL_SET by design
-            ("Alacritty", "Alacritty", Set.NULL_SET),
+            ("org.kde.kate", "Kate", Set.NULL_SET),
             (ADDR, "", Set.NULL_SET),
             ("", "", Set.NULL_SET),
         ]

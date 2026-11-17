@@ -126,6 +126,8 @@ def select_set(window_class:str, window_title:str) -> int:
             return ControllerSet.GENERIC
         case x if "ghostty" in x:
             return ControllerSet.GENERIC
+        case x if "alacritty" in x.lower():
+            return ControllerSet.GENERIC
         case x if "helium" in x:
             return ControllerSet.GENERIC
         case x if "jellyfin" in x:
