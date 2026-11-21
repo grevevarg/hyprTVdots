@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# I33: hid-nintendo sometimes times out probing a USB Switch Pro Controller at boot
+# ("probe with driver nintendo failed with error -110"), which leaves no gamepad until it is re-plugged.
+# This waits for the probe, and re-plugs in software (USB authorized 0 -> 1) any controller that ended up
+# without the nintendo driver. Safe to run any time: no controller, a working one or one on bluetooth is a no-op.
+#
+# usage: nintendo-usb-recover [--dry-run]
+# env (for testing): SYSFS (default /sys), WAIT (seconds per probe wait, default 15), MAX_RESETS (default 2)
+
+set -u
+
+SYSFS=${SYSFS:-/sys}
+WAIT=${WAIT:-15}
+MAX_RESETS=${MAX_RESETS:-2}
+VENDOR=057e
+PRODUCT=2009
+DRY_RUN=0
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+
+# prints the sysfs dir of every usb device that is a Pro Controller
+find_controllers() {
+    local dev
+    for dev in "$SYSFS"/bus/usb/devices/*; do
+        [ -f "$dev/idVendor" ] && [ -f "$dev/idProduct" ] || continue
+        [ "$(cat "$dev/idVendor")" = "$VENDOR" ] && [ "$(cat "$dev/idProduct")" = "$PRODUCT" ] && echo "$dev"
+    done
+}
+
+# true when a hid child of the usb device is bound to the nintendo driver
+is_bound() {
+    local hid
+    for hid in "$1"/*/0003:"${VENDOR^^}":"${PRODUCT^^}".*; do
+        [ -e "$hid/driver" ] && [ "$(basename "$(readlink "$hid/driver")")" = "nintendo" ] && return 0
+    done
+    return 1
+}
+
+# waits up to WAIT seconds for the probe to finish; a failed probe takes ~6 s to time out
+wait_bound() {
+    local i
+    for ((i = 0; i < WAIT; i++)); do
+        is_bound "$1" && return 0
+        sleep 1
+    done
+    is_bound "$1"
+}
+
+replug() {
+    if [ "$DRY_RUN" = 1 ]; then
+        echo "dry run: would write 0 then 1 to $1/authorized"
+        return
+    fi
+    echo 0 > "$1/authorized"
+    sleep 1
+    echo 1 > "$1/authorized"
+}
+
+status=0
+controllers=$(find_controllers)
+if [ -z "$controllers" ]; then
+    echo "no Pro Controller on usb; nothing to do"
+    exit 0
+fi
+
+for dev in $controllers; do
+    name=$(basename "$dev")
+    if wait_bound "$dev"; then
+        echo "$name: nintendo driver bound; nothing to do"
+        continue
+    fi
+    recovered=0
+    for ((attempt = 1; attempt <= MAX_RESETS; attempt++)); do
+        echo "$name: no nintendo driver (failed probe); re-plugging, attempt $attempt/$MAX_RESETS"
+        replug "$dev"
+        [ "$DRY_RUN" = 1 ] && { recovered=1; break; }
+        if wait_bound "$dev"; then
+            echo "$name: recovered; press GUIDE once if the controller doesn't react"
+            recovered=1
+            break
+        fi
+    done
+    if [ "$recovered" = 0 ]; then
+        echo "$name: still no nintendo driver after $MAX_RESETS re-plugs; giving up (re-plug it by hand)" >&2
+        status=1
+    fi
+done
+exit $status
