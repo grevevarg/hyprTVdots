@@ -134,6 +134,9 @@ def select_set(window_class:str, window_title:str) -> int:
             return ControllerSet.MEDIA
         case x if "youtube" in x:
             return ControllerSet.MEDIA
+        case x if "VacuumTube" in x:
+            # YouTube's TV UI; its Electron can't see the pad while antimicrox holds it, so it gets keys
+            return ControllerSet.MEDIA
         case x if "chrome-" in x and "__" in x:
             return ControllerSet.GENERIC
         case x if "RetroArch" in x:

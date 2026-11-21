@@ -115,6 +115,7 @@ class SelectSetTests(unittest.TestCase):
         cases = [
             ("org.jellyfin.JellyfinDesktop", "Jellyfin", Set.MEDIA),
             ("chrome-youtube.com__tv-Default", "YouTube on TV", Set.MEDIA),
+            ("rocks.shy.VacuumTube", "VacuumTube", Set.MEDIA),
             ("helium", "New Tab", Set.GENERIC),
             ("com.mitchellh.ghostty", "~", Set.GENERIC),
             ("Alacritty", "~", Set.GENERIC),
