@@ -36,6 +36,7 @@ reference controls under generic profile
 
 `L1 (left shoulder button)` previous window</br>
 `R1 (right shoulder button)` next window</br>
+(previous/next window skip floating windows; Wine/Proton games are tiled for that reason, and `refocus-game [class]` from a terminal brings back one that floated anyway)</br>
 `GUIDE + d-pad up` increase volume</br>
 `GUIDE + d-pad down` decrease volume</br>
 `GUIDE + X` open application menu</br>

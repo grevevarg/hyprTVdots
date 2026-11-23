@@ -1,0 +1,13 @@
+#!/bin/sh
+# Brings a game window back when it can't be reached by cycling (e.g. it floated).
+#   refocus-game            the most recently used floating window
+#   refocus-game kinkoi     the window whose class matches (regex, case-insensitive)
+[ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] || export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "$XDG_RUNTIME_DIR/hypr" | head -1)
+if [ -n "$1" ]; then
+  filter='select(.class | test($re; "i"))'
+else
+  filter='select(.floating)'
+fi
+addr=$(hyprctl clients -j | jq -r --arg re "$1" "[.[] | select(.mapped) | $filter] | sort_by(.focusHistoryID) | .[0].address // empty")
+[ -n "$addr" ] || { echo "no matching window" >&2; exit 1; }
+hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })"
