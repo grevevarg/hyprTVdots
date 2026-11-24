@@ -11,3 +11,9 @@ fi
 addr=$(hyprctl clients -j | jq -r --arg re "$1" "[.[] | select(.mapped) | $filter] | sort_by(.focusHistoryID) | .[0].address // empty")
 [ -n "$addr" ] || { echo "no matching window" >&2; exit 1; }
 hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })"
+# Monocle can leave a tiled window hidden (black) after a direct focus: leaving and
+# re-entering fullscreen shows it.
+if hyprctl clients -j | jq -e --arg a "$addr" 'any(.[]; .address == $a and .focusHistoryID == 0 and .visible == false and (.floating | not))' >/dev/null; then
+  fs='hl.dispatch(hl.dsp.window.fullscreen({ action = "toggle" }))'
+  hyprctl eval "$fs $fs"
+fi
